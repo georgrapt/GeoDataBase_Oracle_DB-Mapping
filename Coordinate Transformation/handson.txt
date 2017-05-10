@@ -1,0 +1,107 @@
+-- Hands-on-exercise 2015-12-17
+
+-- Content of table SDO_COORD_REF_SYS: in total 5964 (12c)
+SELECT * FROM SDO_COORD_REF_SYS;
+
+-- Overview of different types of reference systems
+SELECT COORD_REF_SYS_KIND , COUNT(*) FROM SDO_COORD_REF_SYS 
+GROUP BY COORD_REF_SYS_KIND ORDER BY COORD_REF_SYS_KIND;
+
+-- WKT for GK 4 (EPSG - 31468 and Oracle - 82032 codes)
+SELECT srid, wktext FROM mdsys.sdo_cs_srs 
+ WHERE srid=31468 or srid=82032;
+
+-- Check code for legacy (Oracle codes are outdated but still supported) 
+SELECT srid, coord_ref_sys_name, is_legacy, legacy_code, legacy_wktext 
+ FROM sdo_coord_ref_sys WHERE srid=31468 or srid=82032; 
+
+-- 1.	Coordinate Transformation
+-- 1.1	Select all Gau? Kr?ger reference systems based on the 
+-- Deutsche H?hen Dreiecks Netz
+
+SELECT srid, COORD_REF_SYS_NAME FROM SDO_COORD_REF_SYS 
+   WHERE COORD_REF_SYS_NAME LIKE '%Gauss%'
+   AND COORD_REF_SYS_NAME LIKE '%DHDN%';
+   
+SELECT srid, coord_ref_sys_name, coord_ref_sys_kind, coord_sys_id 
+  FROM SDO_COORD_REF_SYS
+  WHERE srid IN (82032,4326,3068,31468,262148);
+
+-- 1.2	Create a table GEOTEST containing 2 attributes:
+-- IDtest as primary key and 
+-- geom  of datatype SDO_GEOMETRY.
+
+-- Now insert the following GK coordinates and add them to the GEOTEST table.
+-- Take care to use the correct spatial reference ID (SRID) and don?t forget 
+-- to update the metadata table!
+
+-- R=4589912.66017652 H=5820737.08691974 
+-- R=4589921.53102206 H=5820649.65136422 
+-- R=4590132.10165090 H=5820676.56064716 
+-- R=4590118.96253121 H=5820763.24958736 
+   
+CREATE TABLE geotest (
+  IDtest NUMBER (10) PRIMARY KEY,
+  geom SDO_GEOMETRY
+);
+ 
+-- Insert coordinates (GK4)
+INSERT INTO geotest VALUES (1, MDSYS.SDO_GEOMETRY(2001,31468,
+  SDO_POINT_TYPE(4589912.66017652, 5820737.08691974,null),null,null)); 
+  
+INSERT INTO geotest VALUES (2, MDSYS.SDO_GEOMETRY(2001,31468,
+  SDO_POINT_TYPE(4589921.53102206, 5820649.65136422,null),null,null));
+
+INSERT INTO geotest VALUES (3, MDSYS.SDO_GEOMETRY(2001,31468,
+  SDO_POINT_TYPE(4590132.10165090, 5820676.56064716,null),null,null));
+
+INSERT INTO geotest VALUES (4, MDSYS.SDO_GEOMETRY(2001,31468,
+  SDO_POINT_TYPE(4590118.96253121, 5820763.24958736,null),null,null));
+  
+-- Metadata for 31468 - Gauss Krueger Zone 4   
+-- values from: http://www.spatialreference.org/ref/epsg/31468/
+INSERT INTO USER_SDO_GEOM_METADATA VALUES (
+  'GEOTEST', 'GEOM', SDO_DIM_ARRAY( 
+  SDO_DIM_ELEMENT( 'Easting', 4386596.4101, 4613610.5843, 0.05),
+  SDO_DIM_ELEMENT( 'Northing', 5237914.5325, 6104496.9694, 0.05)
+  ), 31468);
+ 
+-- 1.3
+-- Transform the coordinates from GK Zone 4 to GK Zone 3!
+
+SELECT srid, COORD_REF_SYS_NAME FROM SDO_COORD_REF_SYS 
+   WHERE srid=31467;
+
+SELECT idtest, SDO_CS.TRANSFORM (geom, 31467) FROM geotest; 
+
+-- 1.4	 
+-- Calculate the distance from the first point to the equator in 
+-- GK Zone 4 and compare it with its distance in GK Zone 3 and calculate 
+-- the difference. Explain the result.
+-- distance calculation isn't possible, caused by different CRS
+
+SELECT SDO_GEOM.SDO_DISTANCE(p2.geom , SDO_CS.TRANSFORM(p1.geom,31467), 0.05 ) 
+  FROM geotest p1, GEOTEST p2 WHERE p1.IDtest=1 AND p2.IDtest=1;
+  
+-- pick x and y coordinates of table geotest (coordinates in GK4 system)
+SELECT t.x, t.y FROM geotest g, TABLE(sdo_util.getvertices(g.geom)) t; 
+
+-- pick x and y coordinates of table geotest (coordinates in GK3 system)
+SELECT t.x, t.y FROM geotest g, 
+  TABLE(sdo_util.getvertices(SDO_CS.TRANSFORM(g.geom,31467))) t;
+
+-- calculate distance between GK4 and GK3 coordinates
+SELECT g1.idtest, t1.y AS y_GK3, t2.y AS y_GK4, t1.y-t2.y AS distance  
+  FROM geotest g1, geotest g2, 
+  TABLE(sdo_util.getvertices(SDO_CS.TRANSFORM(g1.geom,31467))) t1, 
+  TABLE(sdo_util.getvertices(g2.geom)) t2
+  WHERE g1.idtest=1 AND g2.idtest=1 OR g1.idtest=2 AND g2.idtest=2
+  OR g1.idtest=3 AND g2.idtest=3 OR g1.idtest=4 AND g2.idtest=4
+  ORDER BY g1.idtest;
+ 
+ 
+-- 1.6	
+-- Transform the coordinates used in 1.2 from GK Zone 4 to geographic 
+-- coordinates (WGS 84) and locate the calculated position in Google Earth.
+
+SELECT SDO_CS.TRANSFORM (geom, 8307) FROM GEOTEST;
